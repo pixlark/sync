@@ -5,15 +5,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "list.h" // Necessary evil
 
+// Unity build
+#include "utility.cc"
 #include "error.cc"
 #include "string_builder.cc"
 #include "lexer.cc"
 #include "parser.cc"
-
-// Threadsafe Job Queue
 
 struct Job_Queue_Node {
 	Job * job;
@@ -76,20 +77,39 @@ struct Job_Queue {
 	}
 };
 
-//
+void * scan_and_execute_from_queue(void *);
 
-char * load_string_from_file(char * path)
+struct Execution_Context {
+	Job_Queue job_queue;
+	
+	pthread_mutex_t exec_mutex = PTHREAD_MUTEX_INITIALIZER;
+	bool execution_completed = false;
+	pthread_t * execution_threads;
+	
+	size_t cpu_count;
+	static const bool threaded = false;
+
+	void init()
+	{
+		if (threaded) {
+			// TODO(pixlark): Linux-only
+			cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+
+			execution_threads = (pthread_t*) malloc(sizeof(pthread_t) * cpu_count);
+			for (int i = 0; i < cpu_count; i++) {
+				pthread_create(execution_threads + i, NULL, scan_and_execute_from_queue, NULL);
+			}
+		} else {
+			scan_and_execute_from_queue(NULL);
+		}
+	}
+};
+
+Execution_Context exec_context;
+
+void * scan_and_execute_from_queue(void *)
 {
-	FILE * file = fopen(path, "r");
-	if (file == NULL) return NULL;
-	int file_len = 0;
-	while (fgetc(file) != EOF) file_len++;
-	char * str = (char*) malloc(file_len + 1);
-	str[file_len] = '\0';
-	fseek(file, 0, SEEK_SET);
-	for (int i = 0; i < file_len; i++) str[i] = fgetc(file);
-	fclose(file);
-	return str;
+	printf("%d\n", Execution_Context::threaded);
 }
 
 int main(int argc, char ** argv)
@@ -98,11 +118,14 @@ int main(int argc, char ** argv)
 		printf("Provide one source file\n");
 		return 1;
 	}
-
+	
+	exec_context.init();
+	
 	const char * source = load_string_from_file(argv[1]);
 	Lexer lexer(source);
 	Parser parser(&lexer);
 	
+	/*
 	while (!parser.at_end()) {
 		List<Job_Spec*> frame_spec = parser.parse_frame_spec();
 		printf("Frame:\n");
@@ -111,7 +134,7 @@ int main(int argc, char ** argv)
 			printf("  %s\n", s);
 			free(s);
 		}
-	}
+	}*/
 	
 	return 0;
 }

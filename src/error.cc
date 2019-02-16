@@ -34,7 +34,7 @@ void _fatal_internal(const char * fmt, const char * file, size_t line, ...)
 	va_start(args, line);
 
 	fprintf(stderr, INVERTED(RED(BOLD("internal error"))) ":\n");
-	fprintf(stderr, DIM("%s:%d") "\n", file, line);
+	fprintf(stderr, DIM("%s:%zu") "\n", file, line);
 	vfprintf(stderr, fmt, args);
 	printf("\n");
 

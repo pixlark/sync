@@ -163,6 +163,5 @@ Token Lexer::next_token()
 		}
 	} break;
 	}
-	
 	fatal("Misplaced character %c (%d)", peek(), peek());
 }
