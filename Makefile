@@ -1,3 +1,2 @@
 make:
-#	g++ -g main.cc -o sync
-	g++ -g threadsafe_queue.cc -o queue
+	g++ -g -Iinclude/ src/main.cc -o sync -lpthread
