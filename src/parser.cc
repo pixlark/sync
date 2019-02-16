@@ -368,7 +368,3 @@ List<Job_Spec*> Parser::parse_frame_spec()
 	}
 	return frame_spec;
 }
-
-struct Job {
-	Job_Spec * spec;
-};

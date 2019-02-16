@@ -1,2 +1,1 @@
-a <- 15, b <- 12;
-_ <- output: (a . b);
+_ <- output: (test);

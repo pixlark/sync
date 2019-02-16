@@ -1,0 +1,8 @@
+LOOKUP "test" ;; Load variable value from execution context
+LOAD_CONST 15 ;; Load constant
+BINARY_OP BINARY_PLUS ;; Run operator on stack
+OUTPUT ;; Output top of stack to stdout
+
+;; When execution of a job completes, it's operation stack should
+;; contain exactly one element, which then gets assigned to whatever
+;; needs to be assigned.
