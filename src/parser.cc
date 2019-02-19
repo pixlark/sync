@@ -1,4 +1,5 @@
 enum Expr_Type {
+	EXPR_NIL,
 	EXPR_INTEGER,
 	EXPR_TUPLE,
 	EXPR_VARIABLE,
@@ -220,6 +221,10 @@ Expr * Parser::parse_expression()
 Expr * Parser::parse_atom()
 {
 	switch (peek.type) {
+	case TOKEN_NIL: {
+		advance();
+		return Expr::with_type(EXPR_NIL);
+	}
 	case TOKEN_INTEGER_LITERAL: {
 		Expr * expr = Expr::with_type(EXPR_INTEGER);
 		expr->integer = expect(TOKEN_INTEGER_LITERAL).values.integer;

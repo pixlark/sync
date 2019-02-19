@@ -338,6 +338,11 @@ struct Compiler {
 void Compiler::compile_expression(Expr * expr)
 {
 	switch (expr->type) {
+	case EXPR_NIL: {
+		Command cmd = Command::with_type(CMD_LOAD_CONST);
+		cmd.load_const.constant = Value::with_type(VALUE_NIL);
+		commands.push(cmd);
+	} break;
 	case EXPR_INTEGER: {
 		Value value = Value::make_integer(expr->integer);
 		Command cmd = Command::with_type(CMD_LOAD_CONST);

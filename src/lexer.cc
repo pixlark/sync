@@ -1,10 +1,18 @@
 enum Token_Type {
 	TOKEN_EOF = 256,
+
+	// Reserved words
 	TOKEN_PLACEHOLDER,
+	TOKEN_NIL,
+	
 	TOKEN_SYMBOL,
 	TOKEN_INTEGER_LITERAL,
 	TOKEN_LEFT_ARROW,
 };
+
+#define RESERVED_WORDS_BEGIN (TOKEN_PLACEHOLDER)
+#define RESERVED_WORDS_END   (TOKEN_SYMBOL)
+#define RESERVED_WORDS_COUNT (RESERVED_WORDS_END - RESERVED_WORDS_BEGIN)
 
 struct Token {
 	Token_Type type;
@@ -45,6 +53,8 @@ char * Token::type_to_string(Token_Type type)
 		return strdup("EOF");
 	case TOKEN_PLACEHOLDER:
 		return strdup("_");
+	case TOKEN_NIL:
+		return strdup("nil");
 	case TOKEN_SYMBOL:
 		return strdup("<symbol>");
 	case TOKEN_INTEGER_LITERAL:
@@ -65,22 +75,20 @@ char * Token::to_string()
 		return strdup(buf);
 	}
 	switch (type) {
-	case TOKEN_EOF: {
-		return strdup("EOF");
-	}
 	case TOKEN_SYMBOL: {
 		return strdup(values.symbol);
 	}
 	case TOKEN_INTEGER_LITERAL: {
 		return itoa(values.integer);
 	}
-	case TOKEN_LEFT_ARROW: {
-		return strdup("<-");
-	}
 	default:
-		fatal_internal("Token::to_string ran on token (%d) without procedure", type);
+		return Token::type_to_string(type);
 	}
 }
+
+static const char * reserved_words[RESERVED_WORDS_COUNT] = {
+	"_", "nil",
+};
 
 struct Lexer {
 	const char * source;
@@ -139,9 +147,13 @@ Token Lexer::next_token()
 			buf[i++] = next();
 		}
 		buf[i++] = '\0';
-		if (strcmp(buf, "_") == 0) {
-			return Token::with_type(TOKEN_PLACEHOLDER);
+
+		for (int i = 0; i < RESERVED_WORDS_COUNT; i++) {
+			if (strcmp(buf, reserved_words[i]) == 0) {
+				return Token::with_type((Token_Type) (RESERVED_WORDS_BEGIN + i));
+			}
 		}
+		
 		Token token;
 		token.type = TOKEN_SYMBOL;
 		token.values.symbol = strdup(buf);
