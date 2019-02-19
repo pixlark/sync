@@ -14,6 +14,7 @@
 #include "error.cc"
 #include "string_builder.cc"
 #include "lexer.cc"
+#include "value.cc"
 #include "parser.cc"
 
 struct Job {
@@ -84,13 +85,13 @@ struct Job_Queue {
 
 struct Variable_Space {
 	List<const char *> keys;
-	List<int> values;
+	List<Value> values;
 	void init()
 	{
 		keys.alloc();
 		values.alloc();
 	}
-	void bind(const char * key, int value)
+	void bind(const char * key, Value value)
 	{
 		for (int i = 0; i < keys.size; i++) {
 			if (strcmp(keys[i], key) == 0) {
@@ -110,7 +111,7 @@ struct Variable_Space {
 		}
 		return false;
 	}
-	int lookup(const char * key)
+	Value lookup(const char * key)
 	{
 		for (int i = 0; i < keys.size; i++) {
 			if (strcmp(keys[i], key) == 0) {
@@ -127,13 +128,14 @@ enum Command_Type {
 	CMD_UNARY_OP,
 	CMD_BINARY_OP,
 	CMD_OUTPUT,
+	CMD_MAKE_TUPLE,
 };
 
 struct Command {
 	Command_Type type;
 	union {
 		struct {
-			int constant;
+			Value constant;
 		} load_const;
 		struct {
 			const char * symbol;
@@ -144,6 +146,9 @@ struct Command {
 		struct {
 			Binary_Op op;
 		} binary_op;
+		struct {
+			size_t length;
+		} make_tuple;
 	};
 	static Command with_type(Command_Type type)
 	{
@@ -151,6 +156,11 @@ struct Command {
 		cmd.type = type;
 		return cmd;
 	}
+};
+
+struct Assignment {
+	const char * symbol;
+	Value value;
 };
 
 void * scan_and_execute_from_queue(void *);
@@ -162,6 +172,7 @@ struct Execution_Context {
 	
 	void init()
 	{
+		var_space.init();
 		cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
 	}
 	void run_threads_for_jobs(List<Job*> jobs) {
@@ -172,19 +183,48 @@ struct Execution_Context {
 		job_queue.unlock();
 		
 		pthread_t * threads = (pthread_t*) malloc(sizeof(pthread_t) * cpu_count);
+		List<Assignment> all_assignments;
+		all_assignments.alloc();
+		
 		for (int i = 0; i < cpu_count; i++) {
 			pthread_create(threads + i, NULL, scan_and_execute_from_queue, NULL);
 		}
+		
 		for (int i = 0; i < cpu_count; i++) {
-			pthread_join(threads[i], NULL);
+			List<Assignment> * assignments;
+			pthread_join(threads[i], (void**) &assignments);
+			for (int i = 0; i < assignments->size; i++) {
+				all_assignments.push(assignments->at(i));
+			}
+			assignments->dealloc();
 		}
+
+		List<const char *> symbols_seen;
+		symbols_seen.alloc();
+		for (int i = 0; i < all_assignments.size; i++) {
+			for (int j = 0; j < symbols_seen.size; j++) {
+				if (strcmp(symbols_seen[j], all_assignments[i].symbol) == 0) {
+					fatal("Tried to assign to variable '%s' multiple times in one frame",
+						  symbols_seen[j]);
+				}
+			}
+			symbols_seen.push(all_assignments[i].symbol);
+		}
+		symbols_seen.dealloc();
+
+		for (int i = 0; i < all_assignments.size; i++) {
+			var_space.bind(all_assignments[i].symbol,
+						   all_assignments[i].value);
+		}
+		
+		all_assignments.dealloc();
 	}
 };
 
 Execution_Context exec_context;
 
 struct VM {
-	List<int> stack;
+	List<Value> stack;
 	List<Command> commands;
 	size_t counter = 0;
 	void init(List<Command> commands)
@@ -213,8 +253,9 @@ void VM::execute()
 		case CMD_UNARY_OP: {
 			switch (cmd.unary_op.op) {
 			case UNARY_MINUS: {
-				int pop = stack.pop();
-				pop *= -1;
+				Value pop = stack.pop();
+				assert(pop.type == VALUE_INTEGER);
+				pop.integer *= -1;
 				stack.push(pop);
 			} break;
 			default:
@@ -224,68 +265,157 @@ void VM::execute()
 		case CMD_BINARY_OP: {
 			switch (cmd.binary_op.op) {
 			case BINARY_PLUS: {
-				int right = stack.pop();
-				int left = stack.pop();
-				int result = left + right;
+				Value right = stack.pop();
+				Value left = stack.pop();
+				assert(right.type == VALUE_INTEGER &&
+					   left.type == VALUE_INTEGER);
+				Value result = Value::make_integer(left.integer + right.integer);
 				stack.push(result);
 			} break;
 			case BINARY_MINUS: {
-				int right = stack.pop();
-				int left = stack.pop();
-				int result = left - right;
+				Value right = stack.pop();
+				Value left = stack.pop();
+				assert(right.type == VALUE_INTEGER &&
+					   left.type == VALUE_INTEGER);
+				Value result = Value::make_integer(left.integer - right.integer);
 				stack.push(result);
 			} break;
 			case BINARY_MULTIPLY: {
-				int right = stack.pop();
-				int left = stack.pop();
-				int result = left * right;
+				Value right = stack.pop();
+				Value left = stack.pop();
+				assert(right.type == VALUE_INTEGER &&
+					   left.type == VALUE_INTEGER);
+				Value result = Value::make_integer(left.integer * right.integer);
 				stack.push(result);
 			} break;
 			case BINARY_DIVIDE: {
-				int right = stack.pop();
-				int left = stack.pop();
-				int result = left / right;
+				Value right = stack.pop();
+				Value left = stack.pop();
+				assert(right.type == VALUE_INTEGER &&
+					   left.type == VALUE_INTEGER);
+				Value result = Value::make_integer(left.integer / right.integer);
 				stack.push(result);
 			} break;
 			default:
 				fatal_internal("Invalid binary operator reached VM::execute()");
 			}
 		} break;
-		case CMD_OUTPUT:
-			printf("%d\n", stack.pop());
-			break;
+		case CMD_OUTPUT: {
+			char * s = stack.pop().to_string();
+			printf("%s\n", s);
+			free(s);
+		} break;
+		case CMD_MAKE_TUPLE: {
+			size_t length = cmd.make_tuple.length;
+			Value * elements = (Value*) malloc(sizeof(Value) * length);
+			for (int i = length - 1; i >= 0; i--) {
+				elements[i] = stack.pop();
+			}
+			Value value = Value::with_type(VALUE_TUPLE);
+			value.tuple.length = length;
+			value.tuple.elements = elements;
+			stack.push(value);
+		} break;
 		default:
 			fatal_internal("Invalid instruction reached VM::execute()");
 		}
 	}
 }
 
-void compile_job_spec(List<Command> * commands, Job_Spec * spec)
+struct Compiler {
+	List<Command> commands;
+	void init()
+	{
+		commands.alloc();
+	}
+	void dealloc()
+	{
+		commands.dealloc();
+	}
+	void compile_expression(Expr * expr);
+};
+
+void Compiler::compile_expression(Expr * expr)
 {
-	Command cmd = Command::with_type(CMD_LOAD_CONST);
-	cmd.load_const.constant = 15;
-	commands->push(cmd);
+	switch (expr->type) {
+	case EXPR_INTEGER: {
+		Value value = Value::make_integer(expr->integer);
+		Command cmd = Command::with_type(CMD_LOAD_CONST);
+		cmd.load_const.constant = value;
+		commands.push(cmd);
+	} break;
+	case EXPR_TUPLE: {
+		Value value = Value::with_type(VALUE_TUPLE);
+		for (int i = 0; i < expr->tuple.size; i++) {
+			compile_expression(expr->tuple[i]);
+		}
+		Command cmd = Command::with_type(CMD_MAKE_TUPLE);
+		cmd.make_tuple.length = expr->tuple.size;
+		commands.push(cmd);
+	} break;
+	case EXPR_VARIABLE: {
+		Command cmd = Command::with_type(CMD_LOOKUP);
+		cmd.lookup.symbol = expr->variable;
+		commands.push(cmd);
+	} break;
+	case EXPR_UNARY: {
+		compile_expression(expr->unary.expr);
+		Command cmd = Command::with_type(CMD_UNARY_OP);
+		cmd.unary_op.op = expr->unary.op;
+		commands.push(cmd);
+	} break;
+	case EXPR_BINARY: {
+		compile_expression(expr->binary.left);
+		compile_expression(expr->binary.right);
+		Command cmd = Command::with_type(CMD_BINARY_OP);
+		cmd.binary_op.op = expr->binary.op;
+		commands.push(cmd);
+	} break;
+	case EXPR_FUNCALL: {
+		// Only built-ins for the moment
+		if (strcmp(expr->funcall.symbol, "output") == 0) {
+			for (int i = 0; i < expr->funcall.arguments.size; i++) {
+				compile_expression(expr->funcall.arguments[i]);
+				commands.push(Command::with_type(CMD_OUTPUT));
+			}
+			Command result = Command::with_type(CMD_LOAD_CONST);
+			result.load_const.constant = Value::make_integer(expr->funcall.arguments.size);
+			commands.push(result);
+		} else {
+			fatal("Function %s unbound", expr->funcall.symbol);
+		}
+	} break;
+	default:
+		fatal_internal("Compiler::compile_expression() type switch incomplete");
+	}
 }
 
-void run_job(Job * job)
+bool run_job(Job * job, Assignment * assignment)
 {
-	List<Command> commands;
-	commands.alloc();
-	compile_job_spec(&commands, job->spec);
+	Compiler compiler;
+	compiler.init();
+	const char * assign_symbol = job->spec->left;
+	compiler.compile_expression(job->spec->right);
 	
 	VM vm;
-	vm.init(commands);
+	vm.init(compiler.commands);
 	vm.execute();
 	assert(vm.stack.size == 1);
-	int result = vm.stack.pop();
-	printf("%d\n", result);
+	Value result = vm.stack.pop();
 
 	vm.dealloc();
-	commands.dealloc();
+	compiler.dealloc();
+
+	if (assign_symbol) {
+		*assignment = (Assignment) { assign_symbol, result };
+	}
+	return (bool) assign_symbol;
 }
 
 void * scan_and_execute_from_queue(void *)
 {
+	List<Assignment> * assignments = (List<Assignment> *) malloc(sizeof(List<Assignment>));
+	assignments->alloc();
 	while (true) {
 		exec_context.job_queue.lock();
 		if (exec_context.job_queue.empty()) {
@@ -294,9 +424,12 @@ void * scan_and_execute_from_queue(void *)
 		}
 		Job * job = exec_context.job_queue.take();
 		exec_context.job_queue.unlock();
-		run_job(job);
+		Assignment assign;
+		if (run_job(job, &assign)) {
+			assignments->push(assign);
+		}
 	}
-	return NULL;
+	return assignments;
 }
 
 int main(int argc, char ** argv)
@@ -307,7 +440,7 @@ int main(int argc, char ** argv)
 	}
 	
 	exec_context.init();
-	exec_context.var_space.bind("test", 12);
+	exec_context.var_space.bind("test", Value::make_integer(12));
 	
 	const char * source = load_string_from_file(argv[1]);
 	Lexer lexer(source);

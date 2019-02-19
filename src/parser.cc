@@ -1,5 +1,6 @@
 enum Expr_Type {
 	EXPR_INTEGER,
+	EXPR_TUPLE,
 	EXPR_VARIABLE,
 	EXPR_UNARY,
 	EXPR_BINARY,
@@ -20,12 +21,9 @@ enum Binary_Op {
 struct Expr {
 	Expr_Type type;
 	union {
-		struct {
-			int value;
-		} integer;
-		struct {
-			const char * symbol;
-		} variable;
+		int integer;
+		List<Expr*> tuple;
+		const char * variable;
 		struct {
 			Unary_Op op;
 			Expr * expr;
@@ -50,9 +48,9 @@ struct Expr {
 	{
 		switch (type) {
 		case EXPR_INTEGER:
-			return itoa(integer.value);
+			return itoa(integer);
 		case EXPR_VARIABLE:
-			return strdup(variable.symbol);
+			return strdup(variable);
 		case EXPR_UNARY: {
 			String_Builder builder;
 			builder.append("(");
@@ -156,7 +154,7 @@ struct Parser {
 	Token weak_expect(Token_Type type);
 	void advance();
 	Expr * parse_atom();
-	List<Expr*> parse_tuple();
+	Expr * parse_tuple();
 	Expr * parse_expression();
 	Expr * parse_expr_0();
 	Expr * parse_expr_1();
@@ -192,7 +190,9 @@ Token Parser::next()
 Token Parser::expect(Token_Type type)
 {
 	if (!is(type)) {
-		fatal("Parser::expect"); // TODO(pixlark): Fancier error
+		fatal("Expected %s, got %s",
+			  Token::type_to_string(type),
+			  peek.to_string());
 	}
 	return next();
 }
@@ -200,7 +200,9 @@ Token Parser::expect(Token_Type type)
 Token Parser::weak_expect(Token_Type type)
 {
 	if (!is(type)) {
-		fatal("Parser::expect"); // TODO(pixlark): Fancier error
+		fatal("Expected %s, got %s",
+			  Token::type_to_string(type),
+			  peek.to_string());
 	}
 	return peek;
 }
@@ -220,7 +222,7 @@ Expr * Parser::parse_atom()
 	switch (peek.type) {
 	case TOKEN_INTEGER_LITERAL: {
 		Expr * expr = Expr::with_type(EXPR_INTEGER);
-		expr->integer.value = expect(TOKEN_INTEGER_LITERAL).values.integer;
+		expr->integer = expect(TOKEN_INTEGER_LITERAL).values.integer;
 		return expr;
 	}
 	case '(': {
@@ -229,30 +231,30 @@ Expr * Parser::parse_atom()
 		expect((Token_Type) ')');
 		return expr;
 	}
+	case '[': {
+		return parse_tuple();
+	}
 	default: {
 		fatal("Expected some kind of atom, got %s", peek.to_string());
 	}
 	}	
 }
 
-List<Expr*> Parser::parse_tuple()
+Expr * Parser::parse_tuple()
 {
 	List<Expr*> tuple;
 	tuple.alloc();
-	expect((Token_Type) '(');
+	expect((Token_Type) '[');
 	while (true) {
-		if (is((Token_Type) ')')) {
+		if (is((Token_Type) ']')) {
 			advance();
 			break;
 		}
 		tuple.push(parse_expression());
-		if (!is((Token_Type) ')')) {
-			expect((Token_Type) '.');
-		} else {
-			if (is((Token_Type) '.')) advance();
-		}
 	}
-	return tuple;
+	Expr * expr = Expr::with_type(EXPR_TUPLE);
+	expr->tuple = tuple;
+	return expr;
 }
 
 Expr * Parser::parse_expr_0()
@@ -264,12 +266,12 @@ Expr * Parser::parse_expr_0()
 			advance();
 			Expr * expr = Expr::with_type(EXPR_FUNCALL);
 			expr->funcall.symbol = symbol_tok.values.symbol;
-			expr->funcall.arguments = parse_tuple();
+			expr->funcall.arguments = parse_tuple()->tuple; // @temporary
 			return expr;
 		} else {
 			// Variable
 			Expr * expr = Expr::with_type(EXPR_VARIABLE);
-			expr->variable.symbol = symbol_tok.values.symbol;
+			expr->variable = symbol_tok.values.symbol;
 			return expr;
 		}
 	} else {

@@ -1,1 +1,2 @@
-_ <- output: (test);
+a <- 1;
+_ <- output: [a];

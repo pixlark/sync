@@ -24,6 +24,7 @@ struct Token {
 		token.type = type;
 		return token;
 	}
+	static char * type_to_string(Token_Type type);
 	char * to_string();
 };
 
@@ -32,6 +33,27 @@ char * itoa(int integer)
 	char buf[512];
 	sprintf(buf, "%d", integer);
 	return strdup(buf);
+}
+
+char * Token::type_to_string(Token_Type type)
+{
+	if (type < 256) {
+		return Token::with_type(type).to_string();
+	}
+	switch (type) {
+	case TOKEN_EOF:
+		return strdup("EOF");
+	case TOKEN_PLACEHOLDER:
+		return strdup("_");
+	case TOKEN_SYMBOL:
+		return strdup("<symbol>");
+	case TOKEN_INTEGER_LITERAL:
+		return strdup("<integer>");
+	case TOKEN_LEFT_ARROW:
+		return strdup("<-");
+	default:
+		fatal("Token::type_to_string() switch incomplete");
+	}
 }
 
 char * Token::to_string()

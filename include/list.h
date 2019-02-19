@@ -20,6 +20,7 @@ struct List {
 	void push(T to_push);
 	void possibly_shrink_to_size(size_t query_size);
 	T pop();
+	T at(size_t index);
 	T& operator[](size_t index);
 	static constexpr int   initial_size  = 4;
 	static constexpr float grow_factor   = 2.0;
@@ -96,8 +97,15 @@ T List<T>::pop()
 }
 
 template <typename T>
+T List<T>::at(size_t index)
+{
+	assert(index < size);
+	return arr[index];
+}
+
+template <typename T>
 T& List<T>::operator[](size_t index)
 {
-	assert(index >= 0 && index < size);
+	assert(index < size);
 	return arr[index];
 }
